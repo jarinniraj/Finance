@@ -51,6 +51,7 @@ h2{font-size:13px;font-weight:600;color:var(--mute);margin:22px 4px 0}
 .seg{display:flex;gap:6px;margin:14px 0}.seg button{flex:1;padding:9px 0;border-radius:10px;border:0;background:var(--card);font-weight:600;cursor:pointer}.seg button.on{background:var(--acc);color:var(--on)}
 .demo{background:#E0A526;color:#12303A;font-weight:800;font-size:12px;text-align:center;padding:6px;border-radius:8px;margin-bottom:8px}
 #ch{width:100%;height:auto;touch-action:none;display:block}
+.sh{display:flex;justify-content:space-between;align-items:center;width:100%;background:none;border:0;padding:6px 4px;margin-top:18px;color:var(--mute);font-size:13px;font-weight:600;cursor:pointer}.sh b{color:var(--ink);font-weight:700}
 </style>
 </head>
 <body>
@@ -87,10 +88,10 @@ async function refresh(){
   if(loading)return;HC={};loading=true;err='';render();
   const syms=[...new Set(S.h.map(x=>x.t))];
   await Promise.all(syms.map(async s=>{try{P[s]=await quote(s)}catch(e){err='Některé ceny se nepodařilo obnovit.'}}));
-  const curs=new Set([...S.h.map(x=>P[x.t]?.cur),...S.cash.map(c=>c.c)].filter(c=>c&&c!==S.base));
+  const curs=new Set([...S.h.map(x=>P[x.t]?.cur),...S.cash.map(c=>c.c),...(S.alt||[]).map(c=>c.c)].filter(c=>c&&c!==S.base));
   await Promise.all([...curs].map(async c=>{try{FX[c]=(await quote(c+S.base+'=X')).p}catch{err='Některé kurzy se nepodařilo obnovit.'}}));
   ts=Date.now();sv('px',P);sv('fx',FX);sv('ts',ts);
-  {const c=calc();if(!err&&c.pos.every(p=>!p.no&&(p.cur===S.base||FX[p.cur]))&&S.cash.every(x=>x.c===S.base||FX[x.c]))rec(c.tot);if(tab===1)H=hist(hr)}
+  {const c=calc();if(!err&&c.pos.every(p=>!p.no&&(p.cur===S.base||FX[p.cur]))&&S.cash.concat(S.alt||[]).every(x=>x.c===S.base||FX[x.c]))rec(c.tot);if(tab===1)H=hist(hr)}
   loading=false;render();
 }
 const rate=c=>c===S.base?1:(FX[c]??0);
@@ -98,7 +99,8 @@ function calc(){
   let tot=0,day=0;const pos=S.h.map(x=>{const q=P[x.t];if(!q)return{...x,val:0,no:1};
     const v=x.q*q.p*rate(q.cur),d=x.q*(q.p-q.pc)*rate(q.cur);tot+=v;day+=d;return{...x,...q,val:v,d,pct:q.pc?(q.p/q.pc-1)*100:0}});
   const cash=S.cash.map(c=>({...c,val:c.a*rate(c.c)}));const ct=cash.reduce((a,c)=>a+c.val,0);
-  return{pos,cash,ct,tot:tot+ct,day,inv:tot};
+  const alt=(S.alt||[]).map(x=>({...x,val:x.a*rate(x.c)}));const at=alt.reduce((a,x)=>a+x.val,0);
+  return{pos,cash,alt,ct,at,tot:tot+ct+at,day,inv:tot};
 }
 function render(){
   [0,1,2,3].forEach(i=>$('#n'+i).classList.toggle('on',tab===i));
@@ -106,7 +108,7 @@ function render(){
 }
 function vP(){
   const c=calc();const prev=c.tot-c.day;const pct=prev?c.day/prev*100:0;const cl=c.day>=0?'up':'dn';
-  const parts=[...c.pos.filter(p=>p.val).map(p=>[p.t,p.val]),...(c.ct?[['Hotovost',c.ct]]:[])];
+  const parts=[...c.pos.filter(p=>p.val).map(p=>[p.t,p.val]),...(c.ct?[['Hotovost',c.ct]]:[]),...c.alt.filter(x=>x.val).map(x=>[x.n,x.val])];
   const bar=parts.map((p,i)=>`<div style="width:${p[1]/c.tot*100}%;background:${COL[i%7]}"></div>`).join('');
   const lg=parts.map((p,i)=>`<span><i style="background:${COL[i%7]}"></i>${esc(p[0])} ${fmt(p[1]/c.tot*100)} %</span>`).join('');
   return `<div class="top"><span>${loading?'Aktualizuji…':ts?'Aktualizováno '+new Date(ts).toLocaleTimeString('cs-CZ',{hour:'2-digit',minute:'2-digit'}):'Ceny zatím nenačteny'}</span><span><button onclick="setDemo(!demo)">${demo?'Ukončit demo':'Demo'}</button><button onclick="refresh()">Obnovit</button></span></div>
@@ -114,13 +116,15 @@ function vP(){
   <div class="chg ${cl}">${c.day>=0?'+':''}${money(c.day)} (${c.day>=0?'+':''}${fmt(pct,2)} %) dnes</div></div>
   ${c.tot?`<div class="bar">${bar}</div><div class="legend">${lg}</div>`:''}
   ${err?`<p class="msg err">${err}</p>`:''}
-  <h2>Pozice</h2>
+  ${sec('pos','Pozice',money(c.inv))}<div ${FO.pos?'hidden':''}>
   <div class="list">${c.pos.map((p,i)=>`<button class="row" onclick="editH(${i})"><div class="l"><b>${esc(p.t)}</b><span>${p.no?'cena nenačtena':esc(p.name)+' · '+fmtq(p.q)+' ks × '+fmt(p.p,2)+' '+p.cur}</span></div>
   <div class="r"><b>${money(p.val)}</b>${p.no?'':`<span class="${p.pct>=0?'up':'dn'}">${p.pct>=0?'+':''}${fmt(p.pct,2)} %</span>`}</div></button>`).join('')||'<p class="msg" style="padding:16px">Zatím žádné pozice. Přidej první akcii nebo ETF.</p>'}</div>
   ${demo?'':`<button class="btn" onclick="editH(-1)">Přidat pozici</button>`}
-  <h2>Hotovost</h2>
+  </div>${sec('cash','Hotovost',money(c.ct))}<div ${FO.cash?'hidden':''}>
   <div class="list">${c.cash.map((x,i)=>`<button class="row" onclick="editC(${i})"><div class="l"><b>${esc(x.c)}</b></div><div class="r"><b>${money(x.val)}</b>${x.c!==S.base?`<span>${fmt(x.a,2)} ${esc(x.c)}</span>`:''}</div></button>`).join('')||'<p class="msg" style="padding:16px">Žádná hotovost.</p>'}</div>
-  ${demo?'':`<button class="btn g" onclick="editC(-1)">Přidat hotovost</button>`}`;
+  ${demo?'':`<button class="btn g" onclick="editC(-1)">Přidat hotovost</button>`}</div>${sec('alt','Penzijko a alternativy',money(c.at))}<div ${FO.alt?'hidden':''}>
+  <div class="list">${c.alt.map((x,i)=>`<button class="row" onclick="editA(${i})"><div class="l"><b>${esc(x.n)}</b><span>${esc(x.t||'Jiné')}${x.u?' · aktualizováno '+new Date(x.u).toLocaleDateString('cs-CZ',{day:'numeric',month:'numeric'}):''}</span></div><div class="r"><b>${money(x.val)}</b>${x.c!==S.base?`<span>${fmt(x.a,2)} ${esc(x.c)}</span>`:''}</div></button>`).join('')||'<p class="msg" style="padding:16px">Zatím nic. Přidej penzijko nebo jinou investici.</p>'}</div>
+  ${demo?'':`<button class="btn g" onclick="editA(-1)">Přidat položku</button>`}</div>`;
 }
 function sheet(h){$('#sheet').innerHTML=h?`<div class="sheet" onclick="if(event.target===this)sheet()"><div>${h}</div></div>`:''}
 function editH(i){if(demo)return;const x=S.h[i]||{t:'',q:''};sheet(`<b>${i<0?'Nová pozice':esc(x.t)}</b><div class="f">
@@ -136,6 +140,19 @@ function saveC(i){const c=$('#c').value.trim().toUpperCase(),a=num($('#a').value
   if(i<0)S.cash.push({c,a});else S.cash[i]={c,a};sv('pf',S);sheet();refresh()}
 function delC(i){S.cash.splice(i,1);sv('pf',S);HC={};sheet();render()}
 
+let FO=ld('fold',{});
+function tog(k){FO[k]=!FO[k];sv('fold',FO);render()}
+const sec=(k,t,v)=>`<button class="sh" onclick="tog('${k}')"><span>${t}</span><span><b>${v}</b> ${FO[k]?'▸':'▾'}</span></button>`;
+const TY=['Penzijko','Alternativní','Jiné'];
+function editA(i){if(demo)return;const x=(S.alt||[])[i]||{n:'',t:'Penzijko',a:'',c:S.base};
+  sheet(`<b>${i<0?'Nová položka':esc(x.n)}</b><div class="f"><label>Název (např. Penzijko Conseq, zlato, nemovitostní fond)</label><input id="an" value="${esc(x.n)}">
+<label>Typ</label><select id="at">${TY.map(t=>`<option ${t===x.t?'selected':''}>${t}</option>`).join('')}</select>
+<label>Aktuální hodnota (aktualizuj ručně)</label><input id="aa" type="text" inputmode="decimal" value="${x.a}" placeholder="např. 184500,50">
+<label>Měna</label><input id="ac" value="${esc(x.c)}" autocapitalize="characters"></div>
+<button class="btn" onclick="saveA(${i})">Uložit</button>${i>=0?`<button class="btn g" onclick="delA(${i})">Smazat</button>`:''}`)}
+function saveA(i){const n=$('#an').value.trim(),t=$('#at').value,a=num($('#aa').value),c=$('#ac').value.trim().toUpperCase();if(!n||isNaN(a)||!c)return;
+  S.alt=S.alt||[];const o={n,t,a,c,u:Date.now()};if(i<0)S.alt.push(o);else S.alt[i]=o;sv('pf',S);sheet();refresh()}
+function delA(i){S.alt.splice(i,1);sv('pf',S);HC={};sheet();render()}
 function md(t){
   let h=esc(t).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/^#{1,3} (.+)$/gm,'<h3>$1</h3>').replace(/^[-•] (.+)$/gm,'<li>$1</li>');
   h=h.replace(/(<li>.*<\/li>\n?)+/g,m=>'<ul>'+m+'</ul>');return h.replace(/\n{2,}/g,'<br>').replace(/\n/g,' ');
@@ -179,14 +196,14 @@ function vS0(){
   <button class="btn g" onclick="imp()">Obnovit ze zálohy</button>
   <p class="msg">Ceny jsou z Yahoo Finance a mohou být zpožděné. Data portfolia zůstávají jen v prohlížeči tvého telefonu.</p>`;
 }
-async function exp(){try{await navigator.clipboard.writeText(JSON.stringify({h:S.h,cash:S.cash,base:S.base,snaps:snaps()}));alert('Záloha je ve schránce.')}catch{prompt('Zkopíruj:',JSON.stringify({h:S.h,cash:S.cash,base:S.base,snaps:snaps()}))}}
+async function exp(){try{await navigator.clipboard.writeText(JSON.stringify({h:S.h,cash:S.cash,base:S.base,alt:S.alt||[],snaps:snaps()}));alert('Záloha je ve schránce.')}catch{prompt('Zkopíruj:',JSON.stringify({h:S.h,cash:S.cash,base:S.base,alt:S.alt||[],snaps:snaps()}))}}
 function imp(){if(demo)return;const t=prompt('Vlož zálohu:');if(!t)return;try{const o=JSON.parse(t),sn=o.snaps;delete o.snaps;S={...S,...o};sv('pf',S);if(sn)sv('snaps_'+S.base,sn);refresh()}catch{alert('Neplatná záloha.')}}
 
 
 const num=s=>parseFloat(String(s).replace(/\s/g,'').replace(',','.'));
 const fmtq=n=>new Intl.NumberFormat('cs-CZ',{maximumFractionDigits:6}).format(n);
 const REAL={};
-const DEMO={S:{base:'CZK',key:'',h:[{t:'AAPL',q:12.5},{t:'MSFT',q:8},{t:'CSPX.L',q:6.25},{t:'EUNL.DE',q:40.5},{t:'CEZ.PR',q:30}],cash:[{c:'CZK',a:85000},{c:'EUR',a:1200.5},{c:'USD',a:600}]},
+const DEMO={S:{base:'CZK',key:'',h:[{t:'AAPL',q:12.5},{t:'MSFT',q:8},{t:'CSPX.L',q:6.25},{t:'EUNL.DE',q:40.5},{t:'CEZ.PR',q:30}],cash:[{c:'CZK',a:85000},{c:'EUR',a:1200.5},{c:'USD',a:600}],alt:[{n:'Penzijní spoření',t:'Penzijko',a:184500,c:'CZK',u:Date.now()},{n:'Zlatá mince 1 oz',t:'Alternativní',a:2650,c:'USD',u:Date.now()-5*864e5},{n:'Nemovitostní fond',t:'Alternativní',a:1800,c:'EUR',u:Date.now()-20*864e5}]},
  P:{AAPL:{p:231.4,pc:229.1,cur:'USD',name:'Apple Inc.'},MSFT:{p:418.2,pc:421.9,cur:'USD',name:'Microsoft Corp.'},'CSPX.L':{p:612.3,pc:608.8,cur:'USD',name:'iShares Core S&P 500 UCITS ETF'},'EUNL.DE':{p:104.7,pc:104.2,cur:'EUR',name:'iShares Core MSCI World UCITS ETF'},'CEZ.PR':{p:1040,pc:1052,cur:'CZK',name:'ČEZ, a.s.'}},
  FX:{USD:23.2,EUR:25.1}};
 const DEMO_NEWS=`## Trh celkově
