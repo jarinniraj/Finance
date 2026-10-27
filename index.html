@@ -176,10 +176,20 @@ Poté pro KAŽDÝ instrument samostatná sekce "## SYMBOL" se 2–3 odrážkami:
 ## Co sledovat – 2–3 události v nejbližších dnech (výsledky, data, zasedání bank).
 Buď věcný, bez doporučení koupit/prodat, označ nejisté informace. Používej **tučně** jen pro klíčová slova.`;
   try{
-    const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':S.key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({model:'claude-sonnet-5-5',max_tokens:2500,tools:[{type:'web_search_20250305',name:'web_search',max_uses:6}],messages:[{role:'user',content:prompt}]})});
-    const j=await r.json();if(!r.ok)throw new Error(j.error?.message||r.status);
-    news={text:j.content.filter(b=>b.type==='text').map(b=>b.text).join('\n'),ts:Date.now()};sv('news',news);
+    let msgs=[{role:'user',content:prompt}],last=null,stop='';
+    for(let k=0;k<5;k++){
+      const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':S.key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+        body:JSON.stringify({model:'claude-sonnet-5-5',max_tokens:6000,tools:[{type:'web_search_20250305',name:'web_search',max_uses:6}],messages:msgs})});
+      const j=await r.json();if(!r.ok)throw new Error(j.error?.message||r.status);
+      last=j.content||[];stop=j.stop_reason;
+      if(stop==='pause_turn'){msgs=[...msgs,{role:'assistant',content:last}];continue}
+      break;
+    }
+    const tx=bl=>bl.filter(b=>b.type==='text').map(b=>b.text).join('');
+    const li=last.map(b=>b.type).lastIndexOf('web_search_tool_result');
+    let text=tx(last.slice(li+1)).trim();if(!text)text=tx(last).trim();
+    if(!text)throw new Error('Agent nevrátil žádný text (důvod ukončení: '+stop+'). Zkus to znovu.');
+    news={text,ts:Date.now()};sv('news',news);
   }catch(e){news={...(news||{text:'',ts:Date.now()}),err:'Chyba: '+e.message}}
   newsBusy=false;render();
 }
